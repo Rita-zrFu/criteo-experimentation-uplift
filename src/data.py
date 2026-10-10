@@ -28,6 +28,7 @@ DATA_URLS = (
 )
 FEATURES = [f"f{i}" for i in range(12)]
 EXPECTED_COLUMNS = FEATURES + ["treatment", "conversion", "visit", "exposure"]
+PROCESSED_COLUMNS = ["row_id"] + EXPECTED_COLUMNS
 BINARY_COLUMNS = ["treatment", "conversion", "visit", "exposure"]
 
 
@@ -104,6 +105,7 @@ def prepare_dataset(raw_path: Path, output: Path, quality_path: Path, force: boo
         copy_sql = f"""
             COPY (
                 SELECT
+                    ROW_NUMBER() OVER () - 1 AS row_id,
                     {feature_select},
                     {binary_select}
                 FROM read_csv_auto(
@@ -118,7 +120,7 @@ def prepare_dataset(raw_path: Path, output: Path, quality_path: Path, force: boo
 
         null_expressions = ", ".join(
             f"SUM(CASE WHEN {column} IS NULL THEN 1 ELSE 0 END) AS {column}"
-            for column in EXPECTED_COLUMNS
+            for column in PROCESSED_COLUMNS
         )
         null_row = connection.execute(
             f"SELECT {null_expressions} FROM read_parquet(?)", [str(output)]
@@ -137,8 +139,8 @@ def prepare_dataset(raw_path: Path, output: Path, quality_path: Path, force: boo
             "source_file": str(raw_path),
             "processed_file": str(output),
             "rows": int(row_count),
-            "columns": EXPECTED_COLUMNS,
-            "null_counts": dict(zip(EXPECTED_COLUMNS, map(int, null_row))),
+            "columns": PROCESSED_COLUMNS,
+            "null_counts": dict(zip(PROCESSED_COLUMNS, map(int, null_row))),
             "invalid_binary_counts": {key: int(value) for key, value in invalid_binary.items()},
         }
         quality_path.write_text(json.dumps(quality, indent=2), encoding="utf-8")

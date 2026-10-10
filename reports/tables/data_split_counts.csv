@@ -1,0 +1,7 @@
+data_split,treatment,users,conversions
+test,0,314435,588.0
+test,1,1782643,5502.0
+train,0,1468361,2811.0
+train,1,8316836,25759.0
+validation,0,314141,664.0
+validation,1,1783176,5450.0

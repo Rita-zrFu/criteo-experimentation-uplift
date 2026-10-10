@@ -1,8 +1,8 @@
 # Large-Scale Product Experimentation & Uplift Modeling
 
-This portfolio project studies a randomized advertising experiment with nearly 14 million users. The first phase builds a reproducible DuckDB data pipeline and estimates intent-to-treat effects on conversion and visits. Later phases will add exploratory treatment-effect heterogeneity, an out-of-sample T-Learner, and policy evaluation.
+This portfolio project studies a randomized advertising experiment with nearly 14 million users. It combines a reproducible DuckDB experimentation pipeline, intent-to-treat inference, exploratory treatment-effect heterogeneity, and an out-of-sample LightGBM T-Learner translated into targeting decisions.
 
-> Project status: **Phase 1 implemented — data pipeline, experiment checks, and A/B testing.** Uplift modeling and targeting-policy results are intentionally not included yet.
+> Project status: **Core analysis complete — data pipeline, A/B testing, exploratory heterogeneity, T-Learner, and test-set policy evaluation.**
 
 ## Business question
 
@@ -50,6 +50,36 @@ Within this benchmark sample, assignment to treatment produced approximately 115
 
 Because Criteo anonymized and prepared this dataset as a public uplift benchmark, these results support method comparison but should not be interpreted as production advertising ROI without treatment-cost and conversion-value information.
 
+## Phase 2: Heterogeneity and uplift targeting
+
+All 12 anonymized features were screened using quantile-based exploratory treatment effects. Tied cutpoints were collapsed rather than forcing artificial groups. Feature-level Cochran Q tests were adjusted with Benjamini–Hochberg separately for conversion and visit; 10 features had estimable and statistically detectable conversion-effect heterogeneity. Because features are anonymized, these patterns are not presented as customer personas.
+
+![Exploratory treatment-effect heterogeneity](figures/exploratory_heterogeneity.png)
+
+For conversion uplift, a LightGBM T-Learner was trained on a deterministic 70% train split, tuned with a 15% validation split, and evaluated once on the untouched 15% test split (2,097,078 users). Training used up to two million observations per randomized arm without class weighting or outcome-based sampling.
+
+Test-set results:
+
+- AUUC: **0.000956**
+- Qini coefficient: **0.000348**
+- Top 20% targeting retained **70.1%** of treat-all incremental conversions while treating **80% fewer users**
+- Top 30% targeting retained **75.7%** of treat-all incremental conversions while treating **70% fewer users**
+
+| Policy | Coverage | Incremental conversions per 100K (95% CI) | Illustrative net value per 100K |
+|---|---:|---:|---:|
+| Treat none | 0% | 0.0 | $0 |
+| Top 20% uplift | 20% | 85.3 [69.0, 100.8] | $7,526 |
+| Top 30% uplift | 30% | 92.1 [76.3, 107.2] | $7,714 |
+| Treat all | 100% | 121.6 [103.4, 139.1] | $7,164 |
+
+Net value assumes a conversion value of $100 and treatment cost of $0.05 per user. These values are a transparent sensitivity scenario, not observed financial data. Under that scenario, top-30% targeting has the highest estimated net value.
+
+![Out-of-sample uplift deciles](figures/uplift_by_decile.png)
+
+![Out-of-sample Qini curve](figures/qini_curve.png)
+
+The uplift ranking is useful but not perfectly monotonic: the lowest predicted decile still shows positive observed lift. This is retained as an honest model limitation and motivates monitoring, calibration, and alternative learners before production use.
+
 ## Repository structure
 
 ```text
@@ -64,7 +94,13 @@ Because Criteo anonymized and prepared this dataset as a public uplift benchmark
 │   └── metrics.sql
 ├── src/
 │   ├── data.py
-│   └── experiment.py
+│   ├── experiment.py
+│   ├── heterogeneity.py
+│   ├── evaluation.py
+│   └── uplift.py
+├── models/
+│   ├── t_learner_arm_0.txt
+│   └── t_learner_arm_1.txt
 ├── notebooks/
 │   └── README.md
 ├── figures/
@@ -72,7 +108,7 @@ Because Criteo anonymized and prepared this dataset as a public uplift benchmark
     └── tables/
 ```
 
-## Reproduce Phase 1
+## Reproduce the analysis
 
 Run these commands from the repository root:
 
@@ -89,6 +125,12 @@ python src/data.py prepare
 
 # Run experiment checks and A/B tests.
 python src/experiment.py
+
+# Run exploratory quantile-based heterogeneity analysis.
+python src/heterogeneity.py
+
+# Train the T-Learner and evaluate uplift/policies on the untouched test set.
+python src/uplift.py
 ```
 
 If the dataset has already been downloaded elsewhere:
@@ -107,6 +149,14 @@ Generated outputs:
 - `reports/phase1_experiment_report.md`
 - `figures/ab_test_effects.png`
 - `figures/covariate_balance.png`
+- `reports/phase2_heterogeneity_report.md`
+- `reports/phase2_uplift_report.md`
+- `reports/tables/heterogeneity_bins.csv`
+- `reports/tables/uplift_deciles.csv`
+- `reports/tables/policy_comparison.csv`
+- `figures/exploratory_heterogeneity.png`
+- `figures/uplift_by_decile.png`
+- `figures/qini_curve.png`
 
 ## Statistical notes
 
@@ -115,10 +165,9 @@ Generated outputs:
 - Relative effects are accompanied by log-scale risk-ratio confidence intervals.
 - MDE is a local normal approximation around the observed control rate, not post-hoc “observed power.”
 - With millions of observations, practical magnitude and confidence intervals matter more than p-values alone.
-
-## Planned next phase
-
-The next phase will add only the agreed middle-scope components: pre-specified exploratory feature bins, a LightGBM T-Learner, honest test-set Qini/AUUC evaluation, and a small treat-all versus top-20%/top-30% policy comparison.
+- Uplift deciles, Qini/AUUC, and policy comparisons are calculated only on the untouched test set.
+- Policy confidence intervals use a stratified bootstrap conditional on each fixed targeting rule.
+- `exposure` is not substituted for randomized `treatment` in causal estimates.
 
 ## Citation
 
