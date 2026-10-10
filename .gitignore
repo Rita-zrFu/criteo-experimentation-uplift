@@ -1,0 +1,12 @@
+.DS_Store
+.venv/
+.cache/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# The public dataset and derived large files are reproducible and should not be committed.
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
