@@ -126,6 +126,8 @@ def fit_arm_model(
         reg_lambda=1.0,
         random_state=seed,
         n_jobs=-1,
+        deterministic=True,
+        force_col_wise=True,
         verbosity=-1,
     )
     model.fit(

@@ -17,4 +17,10 @@ data/processed/criteo_uplift.parquet
 data/processed/data_quality.json
 ```
 
+Expected SHA-256 for the corrected v2.1 compressed file:
+
+```text
+2716e1bf0fd157a93b5bf86924d9088419dfbac2022c6cd90030220634f616dc
+```
+
 Source: [Criteo AI Lab Uplift Prediction Dataset](https://ailab.criteo.com/criteo-uplift-prediction-dataset/). The dataset is distributed under CC BY-NC-SA 4.0; review the official terms before use.

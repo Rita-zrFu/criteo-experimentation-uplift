@@ -1,95 +1,124 @@
 # Large-Scale Product Experimentation & Uplift Modeling
 
-This portfolio project studies a randomized advertising experiment with nearly 14 million users. It combines a reproducible DuckDB experimentation pipeline, intent-to-treat inference, exploratory treatment-effect heterogeneity, and an out-of-sample LightGBM T-Learner translated into targeting decisions.
+**Python · SQL · DuckDB · LightGBM · Causal Inference · 13.98M users**
 
-> Project status: **Core analysis complete — data pipeline, A/B testing, exploratory heterogeneity, T-Learner, and test-set policy evaluation.**
+## Executive summary
+
+This project analyzes a large randomized advertising experiment and turns its average treatment effect into a targeting decision. Assignment to treatment increased conversion from **0.194% to 0.309%**—an absolute lift of **0.115 percentage points** (95% CI: 0.108–0.122 pp) and a relative lift of **59.4%**.
+
+A LightGBM T-Learner then ranked users by predicted incremental response. On an untouched 2.10M-user test set, targeting the top 20% retained **70.1% of treat-all incremental conversions while treating 80% fewer users**. Under an illustrative `$100/conversion` and `$0.05/treatment` scenario, targeting the top 30% produced the highest estimated net value.
+
+| Decision metric | Result |
+|---|---:|
+| Conversion lift | +0.115 pp (+59.4% relative) |
+| Visit lift | +1.034 pp (+27.1% relative) |
+| Top-20% incremental conversions retained | 70.1% |
+| Top-30% incremental conversions retained | 75.7% |
+| Test-set Qini coefficient | 0.000348 |
+
+![Out-of-sample cumulative uplift curve](figures/qini_curve.png)
 
 ## Business question
 
-Does assignment to the advertising treatment increase visits and conversions, and is the estimated lift large enough to matter in practice?
+Does assignment to advertising treatment increase visits and conversions, and can treatment be concentrated among users with the highest incremental response?
 
-The primary outcome is `conversion`; `visit` is a secondary outcome. The causal analysis uses randomized `treatment` assignment, not realized `exposure`. Exposure requires winning an ad auction and therefore should not be treated as if it were independently randomized.
+The primary outcome is `conversion`; `visit` is secondary. All causal estimates use randomized `treatment` assignment. Realized `exposure` requires winning an advertising auction and is therefore not substituted for randomized assignment.
 
-## Dataset
+## Analysis design
 
-The project uses the corrected **Criteo Uplift Prediction Dataset v2.1**:
+| Layer | Implementation | Guardrail |
+|---|---|---|
+| Data engineering | DuckDB scans compressed CSV and writes ZSTD Parquet | Raw and processed data excluded from Git |
+| Experiment validation | Missingness, binary-field validation, allocation, standardized mean differences | No sample-ratio-mismatch test without a published intended allocation ratio |
+| A/B test | Absolute/relative lift, risk ratio, 95% CI, z-test, Cohen's h, MDE | Effect size reported alongside significance |
+| Heterogeneity | Quantile-bin effects and feature-level Cochran Q tests | Exploratory label; Benjamini–Hochberg correction; no invented personas |
+| Uplift model | Separate LightGBM treatment/control response models | Deterministic 70/15/15 train/validation/test split |
+| Policy evaluation | Uplift deciles, Qini/AUUC, top-20%/top-30% policies | All final metrics use the untouched test set |
 
-- 13,979,592 users
-- 12 anonymized features (`f0`–`f11`)
-- randomized treatment assignment
-- binary visit and conversion outcomes
-- approximately 297 MB compressed
+## Dataset and experiment health
 
-The raw data is excluded from Git. Review the [official Criteo dataset page](https://ailab.criteo.com/criteo-uplift-prediction-dataset/) and its CC BY-NC-SA 4.0 terms before downloading.
+The project uses the corrected [Criteo Uplift Prediction Dataset v2.1](https://ailab.criteo.com/criteo-uplift-prediction-dataset/):
 
-## Phase 1 scope
+- 13,979,592 users and 12 anonymized features (`f0`–`f11`)
+- randomized treatment assignment with binary visit and conversion outcomes
+- 85.0% observed treatment share
+- no missing values or invalid binary indicators
+- all 12 pre-treatment features have absolute standardized mean differences below 0.05
 
-- Stream the compressed CSV from the official source and verify its expected columns
-- Convert the 14M-row CSV to compressed Parquet with DuckDB
-- Report row counts, missingness, treatment allocation, and covariate balance
-- Estimate absolute lift, relative lift, risk ratio, 95% confidence intervals, and two-proportion z-tests
-- Report Cohen's h and an approximate 80%-power minimum detectable effect (MDE)
-- Save reproducible tables and figures for the final README
+The corrected file's expected SHA-256 is recorded in [`data/README.md`](data/README.md). The dataset is excluded from Git and remains subject to Criteo's CC BY-NC-SA 4.0 terms.
 
-The treatment allocation ratio is reported but no sample-ratio-mismatch test is performed because the intended randomization probability is not published with the dataset.
+## Experiment results
 
-## Phase 1 results
+| Outcome | Control | Treatment | Absolute lift (95% CI) | Relative lift | 80% MDE |
+|---|---:|---:|---:|---:|---:|
+| Conversion | 0.194% | 0.309% | +0.115 pp [0.108, 0.122] | +59.4% | 0.009 pp |
+| Visit | 3.820% | 4.854% | +1.034 pp [1.006, 1.063] | +27.1% | 0.040 pp |
 
-The pipeline successfully validated all 13,979,592 rows with no missing values or invalid binary indicators. All 12 pre-treatment features have absolute standardized mean differences below 0.05.
-
-| Outcome | Control | Treatment | Absolute lift (95% CI) | Relative lift |
-|---|---:|---:|---:|---:|
-| Conversion | 0.194% | 0.309% | +0.115 pp [0.108, 0.122] | +59.4% |
-| Visit | 3.820% | 4.854% | +1.034 pp [1.006, 1.063] | +27.1% |
-
-Within this benchmark sample, assignment to treatment produced approximately 115 additional conversions and 1,034 additional visits per 100,000 users. These are precisely estimated intent-to-treat effects, not effects of realized exposure.
+Within this benchmark sample, treatment assignment generated approximately 115 additional conversions and 1,034 additional visits per 100,000 users.
 
 ![Treatment and control outcome rates](figures/ab_test_effects.png)
 
+<details>
+<summary>Covariate balance</summary>
+
 ![Pre-treatment covariate balance](figures/covariate_balance.png)
 
-Because Criteo anonymized and prepared this dataset as a public uplift benchmark, these results support method comparison but should not be interpreted as production advertising ROI without treatment-cost and conversion-value information.
+</details>
 
-## Phase 2: Heterogeneity and uplift targeting
+## Exploratory heterogeneity
 
-All 12 anonymized features were screened using quantile-based exploratory treatment effects. Tied cutpoints were collapsed rather than forcing artificial groups. Feature-level Cochran Q tests were adjusted with Benjamini–Hochberg separately for conversion and visit; 10 features had estimable and statistically detectable conversion-effect heterogeneity. Because features are anonymized, these patterns are not presented as customer personas.
+All 12 features were screened with global 20th/40th/60th/80th percentile cutpoints. Tied cutpoints were collapsed rather than forcing artificial groups. Ten features had estimable and statistically detectable conversion-effect heterogeneity after Benjamini–Hochberg correction; `f5` and `f11` did not produce enough distinct quantile bins for a heterogeneity test.
+
+Because the features are anonymized, these findings indicate predictive structure but cannot support named customer personas or substantive feature interpretations.
+
+<details>
+<summary>Selected exploratory effect profiles</summary>
 
 ![Exploratory treatment-effect heterogeneity](figures/exploratory_heterogeneity.png)
 
-For conversion uplift, a LightGBM T-Learner was trained on a deterministic 70% train split, tuned with a 15% validation split, and evaluated once on the untouched 15% test split (2,097,078 users). Training used up to two million observations per randomized arm without class weighting or outcome-based sampling.
+</details>
 
-Test-set results:
+## Uplift model and targeting policy
 
-- AUUC: **0.000956**
-- Qini coefficient: **0.000348**
-- Top 20% targeting retained **70.1%** of treat-all incremental conversions while treating **80% fewer users**
-- Top 30% targeting retained **75.7%** of treat-all incremental conversions while treating **70% fewer users**
+The T-Learner uses up to two million training observations per randomized arm and up to 500,000 validation observations per arm. Sampling is deterministic and does not depend on outcomes; class weighting is not used, preserving the probability scale. Final evaluation uses all 2,097,078 test users.
 
-| Policy | Coverage | Incremental conversions per 100K (95% CI) | Illustrative net value per 100K |
-|---|---:|---:|---:|
-| Treat none | 0% | 0.0 | $0 |
-| Top 20% uplift | 20% | 85.3 [69.0, 100.8] | $7,526 |
-| Top 30% uplift | 30% | 92.1 [76.3, 107.2] | $7,714 |
-| Treat all | 100% | 121.6 [103.4, 139.1] | $7,164 |
+| Policy | Coverage | Incremental conversions per 100K (95% CI) | Incremental lift retained | Illustrative net value per 100K |
+|---|---:|---:|---:|---:|
+| Treat none | 0% | 0.0 | 0% | $0 |
+| Top 20% uplift | 20% | 85.3 [69.0, 100.8] | 70.1% | $7,526 |
+| Top 30% uplift | 30% | 92.1 [76.3, 107.2] | 75.7% | $7,714 |
+| Treat all | 100% | 121.6 [103.4, 139.1] | 100% | $7,164 |
 
-Net value assumes a conversion value of $100 and treatment cost of $0.05 per user. These values are a transparent sensitivity scenario, not observed financial data. Under that scenario, top-30% targeting has the highest estimated net value.
+Policy confidence intervals use a stratified bootstrap conditional on each fixed targeting rule. Net value is a sensitivity scenario—not observed revenue—and changes with the assumed conversion value and treatment cost.
+
+<details>
+<summary>Observed uplift by predicted decile</summary>
 
 ![Out-of-sample uplift deciles](figures/uplift_by_decile.png)
 
-![Out-of-sample Qini curve](figures/qini_curve.png)
+</details>
 
-The uplift ranking is useful but not perfectly monotonic: the lowest predicted decile still shows positive observed lift. This is retained as an honest model limitation and motivates monitoring, calibration, and alternative learners before production use.
+## Limitations
+
+- Criteo anonymized and prepared the data as a public benchmark, so estimates should not be interpreted as production advertising ROI.
+- Anonymous features prevent substantive segment descriptions and actionability assessment.
+- The uplift ranking is not perfectly monotonic: the lowest predicted decile still has positive observed lift. Alternative learners or calibration should be evaluated before deployment.
+- The policy-value calculation requires assumed economics and does not account for interference, drift, or operational constraints.
+- This project estimates intent-to-treat effects; it does not claim a causal effect of realized exposure.
 
 ## Repository structure
 
 ```text
 .
 ├── README.md
+├── LICENSE
+├── Makefile
 ├── requirements.txt
+├── requirements-lock.txt
 ├── data/
 │   ├── README.md
-│   ├── raw/
-│   └── processed/
+│   ├── raw/                       # ignored
+│   └── processed/                 # ignored
 ├── sql/
 │   └── metrics.sql
 ├── src/
@@ -98,76 +127,52 @@ The uplift ranking is useful but not perfectly monotonic: the lowest predicted d
 │   ├── heterogeneity.py
 │   ├── evaluation.py
 │   └── uplift.py
+├── tests/
+│   └── test_evaluation.py
 ├── models/
 │   ├── t_learner_arm_0.txt
 │   └── t_learner_arm_1.txt
-├── notebooks/
-│   └── README.md
 ├── figures/
 └── reports/
+    ├── phase1_experiment_report.md
+    ├── phase2_heterogeneity_report.md
+    ├── phase2_uplift_report.md
     └── tables/
 ```
 
-## Reproduce the analysis
+## Reproduce
 
-Run these commands from the repository root:
+Tested with Python 3.13.7. Top-level dependencies are declared in `requirements.txt`, while `requirements-lock.txt` records the exact tested environment. Raw data and derived Parquet files are intentionally excluded from Git.
 
 ```bash
-python -m venv .venv
+git clone https://github.com/Rita-zrFu/criteo-experimentation-uplift.git
+cd criteo-experimentation-uplift
+
+make setup
+make download
+make all
+make test
+```
+
+Equivalent commands without `make`:
+
+```bash
+python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
-
-# Download the official corrected dataset (about 300 MB compressed).
+python -m pip install -r requirements-lock.txt
 python src/data.py download
-
-# Validate it and create data/processed/criteo_uplift.parquet.
 python src/data.py prepare
-
-# Run experiment checks and A/B tests.
 python src/experiment.py
-
-# Run exploratory quantile-based heterogeneity analysis.
 python src/heterogeneity.py
-
-# Train the T-Learner and evaluate uplift/policies on the untouched test set.
 python src/uplift.py
+python -m unittest discover -s tests -v
 ```
 
-If the dataset has already been downloaded elsewhere:
+The pipeline writes machine-readable CSV/JSON results to `reports/tables/`, rendered figures to `figures/`, human-readable reports to `reports/`, and reproducible LightGBM boosters to `models/`.
 
-```bash
-python src/data.py prepare --input /absolute/path/to/criteo-uplift-v2.1.csv.gz
-python src/experiment.py --data data/processed/criteo_uplift.parquet
-```
+## License
 
-Generated outputs:
-
-- `data/processed/data_quality.json`
-- `reports/tables/ab_test_results.csv`
-- `reports/tables/experiment_arms.csv`
-- `reports/tables/covariate_balance.csv`
-- `reports/phase1_experiment_report.md`
-- `figures/ab_test_effects.png`
-- `figures/covariate_balance.png`
-- `reports/phase2_heterogeneity_report.md`
-- `reports/phase2_uplift_report.md`
-- `reports/tables/heterogeneity_bins.csv`
-- `reports/tables/uplift_deciles.csv`
-- `reports/tables/policy_comparison.csv`
-- `figures/exploratory_heterogeneity.png`
-- `figures/uplift_by_decile.png`
-- `figures/qini_curve.png`
-
-## Statistical notes
-
-- Difference-in-proportions confidence intervals use an unpooled standard error.
-- The null-hypothesis z-test uses the pooled proportion.
-- Relative effects are accompanied by log-scale risk-ratio confidence intervals.
-- MDE is a local normal approximation around the observed control rate, not post-hoc “observed power.”
-- With millions of observations, practical magnitude and confidence intervals matter more than p-values alone.
-- Uplift deciles, Qini/AUUC, and policy comparisons are calculated only on the untouched test set.
-- Policy confidence intervals use a stratified bootstrap conditional on each fixed targeting rule.
-- `exposure` is not substituted for randomized `treatment` in causal estimates.
+Project code is released under the MIT License. The Criteo dataset is not redistributed; data-derived tables, reports, and figures follow the dataset's CC BY-NC-SA 4.0 terms. See [`LICENSE`](LICENSE) for scope and attribution.
 
 ## Citation
 
