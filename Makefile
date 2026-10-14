@@ -1,6 +1,6 @@
 PYTHON := .venv/bin/python
 
-.PHONY: setup download prepare experiment heterogeneity uplift analysis all test
+.PHONY: setup download prepare experiment heterogeneity uplift dml analysis all test
 
 setup:
 	python3 -m venv .venv
@@ -21,7 +21,10 @@ heterogeneity:
 uplift:
 	$(PYTHON) src/uplift.py
 
-analysis: experiment heterogeneity uplift
+dml:
+	$(PYTHON) src/dml.py
+
+analysis: experiment heterogeneity uplift dml
 
 all: prepare analysis
 

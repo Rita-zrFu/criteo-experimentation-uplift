@@ -1,10 +1,12 @@
 # Large-Scale Product Experimentation & Uplift Modeling
 
-**Python · SQL · DuckDB · LightGBM · Causal Inference · 13.98M users**
+**Python · SQL · DuckDB · LightGBM · Double Machine Learning · 13.98M users**
 
 ## Executive summary
 
 This project analyzes a large randomized advertising experiment and turns its average treatment effect into a targeting decision. Assignment to treatment increased conversion from **0.194% to 0.309%**—an absolute lift of **0.115 percentage points** (95% CI: 0.108–0.122 pp) and a relative lift of **59.4%**.
+
+As a covariate-adjusted robustness analysis, three-fold cross-fitted Double Machine Learning estimated a conversion ATE of **0.0996 pp** (SE: 0.0034 pp; 95% CI: 0.0930–0.1062 pp). The estimate remains strongly positive but is 13.5% below the raw difference in means, so it is presented as a material sensitivity result—not as stronger causal identification in an already randomized experiment.
 
 A LightGBM T-Learner then ranked users by predicted incremental response. On an untouched 2.10M-user test set, targeting the top 20% retained **70.1% of treat-all incremental conversions while treating 80% fewer users**. Under an illustrative `$100/conversion` and `$0.05/treatment` scenario, targeting the top 30% produced the highest estimated net value.
 
@@ -12,6 +14,7 @@ A LightGBM T-Learner then ranked users by predicted incremental response. On an 
 |---|---:|
 | Conversion lift | +0.115 pp (+59.4% relative) |
 | Visit lift | +1.034 pp (+27.1% relative) |
+| Cross-fitted DML conversion ATE | +0.0996 pp [0.0930, 0.1062] |
 | Top-20% incremental conversions retained | 70.1% |
 | Top-30% incremental conversions retained | 75.7% |
 | Test-set Qini coefficient | 0.000348 |
@@ -31,6 +34,7 @@ The primary outcome is `conversion`; `visit` is secondary. All causal estimates 
 | Data engineering | DuckDB scans compressed CSV and writes ZSTD Parquet | Raw and processed data excluded from Git |
 | Experiment validation | Missingness, binary-field validation, allocation, standardized mean differences | No sample-ratio-mismatch test without a published intended allocation ratio |
 | A/B test | Absolute/relative lift, risk ratio, 95% CI, z-test, Cohen's h, MDE | Effect size reported alongside significance |
+| DML robustness | Three-fold cross-fitted AIPW/orthogonal score | Covariate adjustment, not a claim to repair confounding |
 | Heterogeneity | Quantile-bin effects and feature-level Cochran Q tests | Exploratory label; Benjamini–Hochberg correction; no invented personas |
 | Uplift model | Separate LightGBM treatment/control response models | Deterministic 70/15/15 train/validation/test split |
 | Policy evaluation | Uplift deciles, Qini/AUUC, top-20%/top-30% policies | All final metrics use the untouched test set |
@@ -64,6 +68,19 @@ Within this benchmark sample, treatment assignment generated approximately 115 a
 ![Pre-treatment covariate balance](figures/covariate_balance.png)
 
 </details>
+
+## Double Machine Learning robustness analysis
+
+A three-fold cross-fitted interactive-regression DML estimator complements the unadjusted experiment analysis. It uses standardized logistic regression for the propensity nuisance and separate LightGBM treatment/control outcome nuisances. Every observation is scored by models trained without its fold, and all 13,979,592 users contribute to the orthogonal augmented inverse-propensity score.
+
+| Estimator | Conversion ATE | Standard error | 95% CI |
+|---|---:|---:|---:|
+| Randomized difference in means | 0.1152 pp | 0.0034 pp | [0.1085, 0.1219] pp |
+| Cross-fitted DML | 0.0996 pp | 0.0034 pp | [0.0930, 0.1062] pp |
+
+DML reduces the standard error by approximately 2.0%, but its point estimate is 0.0156 pp lower and the confidence intervals do not overlap. Both methods support a positive treatment effect, while the difference shows that covariate adjustment is a meaningful sensitivity analysis in this pooled benchmark. DML is not used here to claim improved causal identification: treatment assignment is already randomized.
+
+Full specification and fold diagnostics are in [`reports/dml_report.md`](reports/dml_report.md).
 
 ## Exploratory heterogeneity
 
@@ -105,6 +122,7 @@ Policy confidence intervals use a stratified bootstrap conditional on each fixed
 - The uplift ranking is not perfectly monotonic: the lowest predicted decile still has positive observed lift. Alternative learners or calibration should be evaluated before deployment.
 - The policy-value calculation requires assumed economics and does not account for interference, drift, or operational constraints.
 - This project estimates intent-to-treat effects; it does not claim a causal effect of realized exposure.
+- The DML estimate is materially below the raw difference in means; both are reported rather than selecting the more favorable estimate.
 
 ## Repository structure
 
@@ -124,6 +142,7 @@ Policy confidence intervals use a stratified bootstrap conditional on each fixed
 ├── src/
 │   ├── data.py
 │   ├── experiment.py
+│   ├── dml.py
 │   ├── heterogeneity.py
 │   ├── evaluation.py
 │   └── uplift.py
@@ -135,6 +154,7 @@ Policy confidence intervals use a stratified bootstrap conditional on each fixed
 ├── figures/
 └── reports/
     ├── phase1_experiment_report.md
+    ├── dml_report.md
     ├── phase2_heterogeneity_report.md
     ├── phase2_uplift_report.md
     └── tables/
@@ -163,6 +183,7 @@ python -m pip install -r requirements-lock.txt
 python src/data.py download
 python src/data.py prepare
 python src/experiment.py
+python src/dml.py
 python src/heterogeneity.py
 python src/uplift.py
 python -m unittest discover -s tests -v
